@@ -2,6 +2,7 @@
 
 PLUTONIUM_DIRECTORY=/t6server/plutonium
 SERVER_DIRECTORY=/t6server/server
+GAME_FILES_DIR=/t6server/game_files
 IW4ADMIN_DIRECTORY=/t6server/admin
 DOWNLOAD_DIRECTORY=/t6server/downloaded_files
 UPDATER_DIRECTORY=/t6server/updater
@@ -16,80 +17,96 @@ mkdir -p $PLUTONIUM_DIRECTORY \
          $STATUS_DIRECTORY
 
 ################################################################################
-#                          Server Files Provisioning                           #
+#                              Error Handling                                 #
 ################################################################################
 
-## Download Server Files 
+# Print a clear error and exit
+fail() {
+    echo "ERROR: $*" >&2
+    exit 1
+}
+
+# Download a file to a specific destination, failing with a clear message
+# download <url> <destination> [extra wget args...]
+download() {
+    local url="$1"
+    local dest="$2"
+    shift 2
+    echo "Downloading: $url"
+    if ! wget "$@" "$url" -O "$dest"; then
+        fail "failed to access $url - check your internet connection, or the site/file may be down or moved"
+    fi
+    echo "Downloaded: $dest"
+}
+
+# Download a file into a directory, failing with a clear message
+# download_to_dir <url> <directory> [extra wget args...]
+download_to_dir() {
+    local url="$1"
+    local dir="$2"
+    shift 2
+    echo "Downloading: $url"
+    if ! wget "$@" -P "$dir" "$url"; then
+        fail "failed to access $url - check your internet connection, or the site/file may be down or moved"
+    fi
+    echo "Downloaded to: $dir"
+}
+
+# Extract a zip into a directory, failing with a clear message
+# extract <zipfile> <destination>
+extract() {
+    local zipfile="$1"
+    local dest="$2"
+    echo "Extracting: $zipfile"
+    if ! unzip -o "$zipfile" -d "$dest"; then
+        fail "failed to extract $zipfile - the archive may be corrupt or incomplete"
+    fi
+    echo "Extracted to: $dest"
+}
+
+################################################################################
+#                  Server Files Provisioning (LOCAL FILES VERSION)             #
+################################################################################
+# Instead of downloading a pre-built "T6-Server.zip" (the original source for
+# this, vault.our-space.xyz, is no longer reachable), we build the same
+# Multiplayer/ + Zombie/ + zone layout the launcher expects directly from the
+# user's own legally-obtained game files, mounted read-only at $GAME_FILES_DIR.
+
 echo "Checking plutonium server files, please wait..."
 
-if [ -e $STATUS_DIRECTORY/.sv_files_downloaded ]; then
-    echo "Server files already downloaded!"
-else
-    echo "Downloading server files..."
-    wget https://vault.our-space.xyz/ATOM/T6-Server.zip -O $DOWNLOAD_DIRECTORY/T6-Server.zip -q --show-progress
-    # Check the exit status
-    if [ $? -eq 0 ]; then
-        echo "Server files downloaded successfully!"
-        touch $STATUS_DIRECTORY/.sv_files_downloaded
-    else
-        echo "Command failed"
-        exit 1
-    fi
-fi
-
-## Extract Server Files
-if [ -e $STATUS_DIRECTORY/.sv_files_extracted ]; then
-    echo "Server files already extracted!"
-else
-    echo "Extracting server files..."
-    unzip -o $DOWNLOAD_DIRECTORY/T6-Server.zip -d $DOWNLOAD_DIRECTORY/
-    # Check the exit status
-    if [ $? -eq 0 ]; then
-        echo "Server files extracted successfully!"
-        touch $STATUS_DIRECTORY/.sv_files_extracted
-    else
-        echo "Command failed"
-        exit 1
-    fi
-fi
-
-# Remove the downloaded Zip file [WIP]
-# rm $DOWNLOAD_DIRECTORY/T6-Server.zip
-
-# Copy Server Files
 if [ -e $STATUS_DIRECTORY/.sv_files_copied ]; then
-    echo "Server files already copied!"
+    echo "Server files already set up!"
 else
-    echo "Copying server files..."
+    echo "Setting up server files from local game files at $GAME_FILES_DIR..."
 
-    # Copy the files to the destination directory
-
-    echo "Copying /Plutonium files..."
-    cp -r $DOWNLOAD_DIRECTORY/T6-Server/Plutonium/* $PLUTONIUM_DIRECTORY
-    # Check the exit status
-    if [ $? -eq 0 ]; then
-        echo "Server files from /Plutonium copied successfully!"
-    else
-        echo "Command failed"
-        exit 1
-    fi
-    
-    echo "Copying /Server files..."
-    cp -r $DOWNLOAD_DIRECTORY/T6-Server/Server/* $SERVER_DIRECTORY
-    # Check the exit status
-    if [ $? -eq 0 ]; then
-        echo "Server files from /Server copied successfully!"
-    else
-        echo "Command failed"
+    if [ ! -d "$GAME_FILES_DIR/zone" ]; then
+        echo "ERROR: '$GAME_FILES_DIR/zone' not found."
+        echo "Make sure your merged game files (base game + DLCs) are mounted read-only at $GAME_FILES_DIR."
         exit 1
     fi
 
-    echo "All server files copied successfully!"
+    echo "Copying game files into Multiplayer mode folder..."
+    if ! mkdir -p "$SERVER_DIRECTORY/Multiplayer" || ! cp -r "$GAME_FILES_DIR"/. "$SERVER_DIRECTORY/Multiplayer/"; then
+        fail "could not copy game files into $SERVER_DIRECTORY/Multiplayer - is the drive full or read-only?"
+    fi
+    rm -rf "$SERVER_DIRECTORY/Multiplayer/zone"
+    mkdir -p "$SERVER_DIRECTORY/Multiplayer/main"
+
+    echo "Copying game files into Zombie mode folder..."
+    if ! mkdir -p "$SERVER_DIRECTORY/Zombie" || ! cp -r "$GAME_FILES_DIR"/. "$SERVER_DIRECTORY/Zombie/"; then
+        fail "could not copy game files into $SERVER_DIRECTORY/Zombie - is the drive full or read-only?"
+    fi
+    rm -rf "$SERVER_DIRECTORY/Zombie/zone"
+    mkdir -p "$SERVER_DIRECTORY/Zombie/main"
+
+    echo "Linking shared zone (fastfiles) folder..."
+    if ! ln -sfn "$GAME_FILES_DIR/zone" "$SERVER_DIRECTORY/zone"; then
+        fail "could not symlink $GAME_FILES_DIR/zone into $SERVER_DIRECTORY/zone"
+    fi
+
+    echo "Server files set up successfully from local game files!"
     touch $STATUS_DIRECTORY/.sv_files_copied
 fi
-
-# Remove the downloaded Server files [WIP]
-# rm -rf $DOWNLOAD_DIRECTORY/T6-Server
 
 
 ################################################################################
@@ -98,7 +115,9 @@ fi
 
 echo "Running updater..."
 # Use checkupdater.sh to download the latest updater and run it
-bash /t6server/check_updater.sh
+if ! bash /t6server/check_updater.sh; then
+    fail "the Plutonium updater (check_updater.sh) failed - see the messages above"
+fi
 echo "Updater finished!"
 
 
@@ -107,19 +126,13 @@ echo "Updater finished!"
 ################################################################################
 
 # Download the Server Configuration Files
+CONFIG_URL="https://github.com/xerxes-at/T6ServerConfigs/archive/master.zip"
 if [ -e $STATUS_DIRECTORY/.sv_cfg_files_downloaded ]; then
     echo "Server config files already downloaded!"
 else
     echo "Downloading server config files..."
-    wget https://github.com/xerxes-at/T6ServerConfigs/archive/master.zip -O $DOWNLOAD_DIRECTORY/server_configs.zip -q --show-progress
-    # Check the exit status
-    if [ $? -eq 0 ]; then
-        echo "Server files downloaded successfully!"
-        touch $STATUS_DIRECTORY/.sv_cfg_files_downloaded
-    else
-        echo "Command failed"
-        exit 1
-    fi
+    download "$CONFIG_URL" "$DOWNLOAD_DIRECTORY/server_configs.zip" -q --show-progress
+    touch $STATUS_DIRECTORY/.sv_cfg_files_downloaded
 fi
 
 # Extract the Server Config Files
@@ -127,15 +140,8 @@ if [ -e $STATUS_DIRECTORY/.sv_cfg_files_extracted ]; then
     echo "Server config files already extracted!"
 else
     echo "Extracting server config files..."
-    unzip -o $DOWNLOAD_DIRECTORY/server_configs.zip -d $DOWNLOAD_DIRECTORY/server_configs/
-    # Check the exit status
-    if [ $? -eq 0 ]; then
-        echo "Server files extracted successfully!"
-        touch $STATUS_DIRECTORY/.sv_cfg_files_extracted
-    else
-        echo "Command failed"
-        exit 1
-    fi
+    extract "$DOWNLOAD_DIRECTORY/server_configs.zip" "$DOWNLOAD_DIRECTORY/server_configs/"
+    touch $STATUS_DIRECTORY/.sv_cfg_files_extracted
 fi
 
 # Copy the Server Config Files
@@ -198,13 +204,6 @@ else
     winecfg
 fi;
 
-# echo "before setting virtual server"
-# # Setup Virtual Screen 
-# Xvfb :0 -screen 0 1024x768x16 -nolisten unix
-# export DISPLAY=:0.0
-# export WINEDEBUG=fixme-all
-# echo "after setting virtual server"
-
 
 ################################################################################
 #                             Server Provisioning                              #
@@ -222,7 +221,7 @@ if [ "$SERVER_MODE" = "Multiplayer" ]; then
     MODE="t6mp"
     CFG="dedicated.cfg"
     CFG_PATH="$MODE_PATH/main/$CFG"
-    ln -sf /t6server/server/zone /t6server/server/Multiplayer/zone
+    ln -sfn /t6server/server/zone /t6server/server/Multiplayer/zone
 else
     if [ "$SERVER_MODE" != "Zombie" ]; then
         echo "Invalid Server Mode! Defaulting to Zombie"
@@ -233,7 +232,7 @@ else
     MODE_PATH="/t6server/server/Zombie"
     CFG="dedicated_zm.cfg"
     CFG_PATH="$MODE_PATH/main/$CFG"
-    ln -sf /t6server/server/zone /t6server/server/Zombie/zone
+    ln -sfn /t6server/server/zone /t6server/server/Zombie/zone
 fi
 
 # Define if server will run in LAN mode
@@ -287,23 +286,20 @@ LOGS_DIR="$PLUTONIUM_DIRECTORY/storage/t6/logs/"
 echo "Checking IW4Admin files..."
 
 # Download IW4Admin
+IW4ADMIN_API="https://api.github.com/repos/RaidMax/IW4M-Admin/releases"
 if [ -e $STATUS_DIRECTORY/.admin_files_downloaded ]; then
     echo "IW4Admin files already downloaded!"
 else
     echo "Downloading IW4Admin files..."
-    curl -s https://api.github.com/repos/RaidMax/IW4M-Admin/releases \
+    release_url=$(curl -sfL "$IW4ADMIN_API" \
         | grep -m 1 "browser_download_url" \
         | cut -d : -f 2,3 \
-        | tr -d \" \
-        | wget -qi - -P $DOWNLOAD_DIRECTORY
-    # Check the exit status
-    if [ $? -eq 0 ]; then
-        echo "IW4Admin files downloaded successfully!"
-        touch $STATUS_DIRECTORY/.admin_files_downloaded
-    else
-        echo "Command failed"
-        exit 1
+        | tr -d \" || true)
+    if [ -z "$release_url" ]; then
+        fail "failed to access $IW4ADMIN_API - GitHub may be unreachable, or the repository may have been moved or renamed"
     fi
+    download_to_dir "$release_url" "$DOWNLOAD_DIRECTORY" -q --show-progress
+    touch $STATUS_DIRECTORY/.admin_files_downloaded
 fi
 
 # Extract IW4Admin
@@ -311,15 +307,8 @@ if [ -e $STATUS_DIRECTORY/.admin_files_extracted ]; then
     echo "IW4Admin files already extracted!"
 else
     echo "Extracting IW4Admin files..."
-    unzip -o $DOWNLOAD_DIRECTORY/IW4MAdmin-*.zip -d $IW4ADMIN_DIRECTORY
-    # Check the exit status
-    if [ $? -eq 0 ]; then
-        echo "IW4Admin files extracted successfully!"
-        touch $STATUS_DIRECTORY/.admin_files_extracted
-    else
-        echo "Command failed"
-        exit 1
-    fi
+    extract "$DOWNLOAD_DIRECTORY/IW4MAdmin-*.zip" "$IW4ADMIN_DIRECTORY"
+    touch $STATUS_DIRECTORY/.admin_files_extracted
 fi
 
 # Give execute permissions to IW4Admin
@@ -337,13 +326,11 @@ if [ -e $PLUTONIUM_DIRECTORY/bin/plutonium-bootstrapper-win32.exe ]; then
     echo "Plutonium files exist!"
     echo "Starting server..."
     # Replace Startup Variables
-    STARTUP="$PLUTONIUM_DIRECTORY/bin/plutonium-bootstrapper-win32.exe $MODE $MODE_PATH -dedicated $LAN +start_map_rotate +set key $SERVER_KEY +set net_port $SERVER_PORT +set sv_config $CFG"
+    STARTUP="$PLUTONIUM_DIRECTORY/bin/plutonium-bootstrapper-win32.exe $MODE $MODE_PATH -dedicated $LAN +exec $CFG +map_rotate +set key $SERVER_KEY +set net_port $SERVER_PORT"
     echo "Running ${STARTUP}"
 
     # Run the Server (detached on a screen named plutonium-server)
-    # ( cd $PLUTONIUM_DIRECTORY && pkill Xvfb || true && exec xvfb-run wine ${STARTUP} )
-    ( cd $PLUTONIUM_DIRECTORY && pkill Xvfb || true && screen -S plutonium-server -dm bash -c "exec xvfb-run wine ${STARTUP}" )
-    # ( cd $PLUTONIUM_DIRECTORY && pkill Xvfb || true && screen -S plutonium-server -dm bash -c "exec xvfb-run wine /t6server/plutonium/bin/plutonium-bootstrapper-win32.exe t6zm /t6server/server/Zombie -dedicated -lan +start_map_rotate +set key YOUR_KEY_HERE +set net_port 4976 +set sv_config dedicated_zm.cfg" )
+    ( cd $PLUTONIUM_DIRECTORY && pkill Xvfb || true && screen -S plutonium-server -L -Logfile /t6server/status/plutonium-server.log -dm bash -c "exec xvfb-run wine ${STARTUP}" )
 else
     echo "Missing Plutonium files!! Add them manually!"
     exit 1
@@ -357,7 +344,6 @@ if [ -e $IW4ADMIN_DIRECTORY/StartIW4MAdmin.sh ]; then
     echo "Running $IW4ADMIN_DIRECTORY/StartIW4MAdmin.sh"
 
     # Run IW4Admin (detached on a screen named admin-panel)
-    # ( cd $IW4ADMIN_DIRECTORY && $IW4ADMIN_DIRECTORY/StartIW4MAdmin.sh )
     ( cd $IW4ADMIN_DIRECTORY && screen -S admin-panel -dm bash -c "$IW4ADMIN_DIRECTORY/StartIW4MAdmin.sh" )
 else
     echo "Missing IW4Admin files!! Add them manually!"

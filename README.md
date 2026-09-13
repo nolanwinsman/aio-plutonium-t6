@@ -18,6 +18,10 @@ This Repository is a work in progress state, so if you think there's an improvem
 
 > Don't quote me on the statements above :sweat_smile:
 
+## Fork changes
+
+This fork fixes the upstream image so it works with locally-owned game files: the server layout is now built from your own legally-obtained game files mounted read-only at `/t6server/game_files` (the old pre-built download from `vault.our-space.xyz` is dead), the engine startup arguments are corrected (using `+exec <cfg> +map_rotate` so map rotation actually starts), the `zone` symlink no longer breaks on restarts, the required `main/` folders are created before configs are copied, persistent server logs are written to `/t6server/status/plutonium-server.log`, and every download/URL failure now reports the exact address that couldn't be reached instead of a generic "Command failed".
+
 
 ## Setup
 
