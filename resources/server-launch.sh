@@ -344,61 +344,26 @@ else
 fi
 
 # IW4MAdmin panel disabled for now - kept crashing the container. Re-enable by
-# uncommenting start_panel() and the watchdog block below.
+# uncommenting start_panel() below.
 # start_panel() {
 #     ( cd $IW4ADMIN_DIRECTORY && screen -S admin-panel -dm bash -c "$IW4ADMIN_DIRECTORY/StartIW4MAdmin.sh" )
 # }
 # start_panel
 
-# Keep the container alive and watch the game server.
+# Keep the container alive; restart the game in place if its screen exits.
 #
-# Plutonium T6 dedicated servers are known to go unresponsive after a while or
-# under repeated RCON/map-switch commands (still listed, no join, RCON silent)
-# without ever exiting - so a plain "wait for the screen to die" loop is not
-# enough. Watchdog: restart the game if its screen is gone OR RCON stops
-# answering the `status` probe twice in a row. Same probe the community uses
-# for the same problem.
-# ponytail: 30s cadence, 2-strike dead check; per-port/game if this ever needs
-# to supervise more than one server.
-wine_probe_rcon() {
-    timeout 3 bash -c \
-        'exec 3<>/dev/udp/127.0.0.1/$1; \
-         printf "\377\377\377\377rcon %s status\000\346\352" "$2" >&3; \
-         head -c 512 <&3' _ "$SERVER_PORT" "${SERVER_RCON_PASSWORD:-admin}" 2>/dev/null \
-        | grep -q .
-}
-
-game_stopped() {
-    ([ -n "$(screen -ls | grep plutonium-server)" ] \
-        && wine_probe_rcon) \
-        && return 1
-    return 0
-}
-
-watchdog_failure_count=0
-game_started_at=$(date +%s)
+# There was a watchdog here that also force-restarted the game whenever a
+# UDP RCON `status` probe went unanswered twice in a row. That probe
+# false-positived on a healthy server and killed it mid-game (~4 min cycle,
+# players saw "connection interrupted"), so it is gone. A dead screen is the
+# only failure this can see for sure, and it is the one that matters.
 while true; do
     sleep 30
-
-    if game_stopped; then
-        # Respect the initial boot: the game can take a few minutes to answer RCON.
-        if [ $(( $(date +%s) - game_started_at )) -lt 180 ]; then
-            watchdog_failure_count=0
-            continue
-        fi
-        watchdog_failure_count=$((watchdog_failure_count + 1))
-    else
-        watchdog_failure_count=0
-        # IW4MAdmin panel disabled (see start_panel above)
-    fi
-
-    if [ "$watchdog_failure_count" -ge 2 ]; then
-        echo "$(date) game server unresponsive or crashed - restarting..."
+    if ! screen -ls | grep -q plutonium-server; then
+        echo "$(date) game server exited - restarting..."
         screen -S plutonium-server -X quit 2>/dev/null
         pkill -f plutonium-bootstrapper-win32.exe 2>/dev/null
         sleep 5
         start_game
-        watchdog_failure_count=0
-        game_started_at=$(date +%s)
     fi
 done
