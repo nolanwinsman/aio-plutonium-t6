@@ -252,8 +252,7 @@ fi
 # These seds are idempotent, so run them on EVERY boot (no once-only status
 # flag). The old one-shot flags meant .env edits were ignored on existing
 # servers, e.g. SERVER_RCON_PASSWORD or SERVER_MAX_CLIENTS "took" only on the
-# very first boot. SERVER_MAP_ROTATION below is the exception - its insert is
-# not idempotent, so it keeps its flag.
+# very first boot.
 
 # Set max clients of the server
 if [ ! -z "$SERVER_MAX_CLIENTS" ]; then
@@ -267,14 +266,11 @@ if [ ! -z "$SERVER_RCON_PASSWORD" ]; then
     sed -i "s/\(rcon_password \)\"[^\"]*\"/\1\"$SERVER_RCON_PASSWORD\"/" "$CFG_PATH"
 fi
 
-# Set server map rotation
-if [ ! -z "$SERVER_MAP_ROTATION" ] && [ ! -e $STATUS_DIRECTORY/.server_config_file_zm_map_rotation_modified ]; then
+# Set server map rotation (replaces the active sv_maprotation line; the
+# commented-out //sv_maprotation alternates are left alone)
+if [ ! -z "$SERVER_MAP_ROTATION" ]; then
     echo "Setting server rotation to: '$SERVER_MAP_ROTATION'"
-    sed -i "/\/\/Classic\/TranZit Maps rotation/ {
-        n; s/^\(.*\)$/\/\/\1/; n; a\\
-        $SERVER_MAP_ROTATION
-    }" "$CFG_PATH"
-    touch $STATUS_DIRECTORY/.server_config_file_zm_map_rotation_modified
+    sed -i "s/^sv_maprotation \"[^\"]*\"/$SERVER_MAP_ROTATION/" "$CFG_PATH"
 fi
 
 # Set server password
