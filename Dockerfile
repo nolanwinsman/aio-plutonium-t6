@@ -93,6 +93,10 @@ RUN wget https://packages.microsoft.com/config/ubuntu/22.04/packages-microsoft-p
   dpkg -i packages-microsoft-prod.deb && \
   rm packages-microsoft-prod.deb
 
+# IW4MAdmin's current releases require the .NET 10 runtime (fresh installs
+# track the latest GitHub release, which has moved on from .NET 6)
+RUN apt-get update && apt-get install -y aspnetcore-runtime-10.0
+
 
 ################################################################################
 

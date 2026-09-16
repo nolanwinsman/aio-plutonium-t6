@@ -330,7 +330,10 @@ if [ -e $PLUTONIUM_DIRECTORY/bin/plutonium-bootstrapper-win32.exe ]; then
     echo "Running ${STARTUP}"
 
     # Run the Server (detached on a screen named plutonium-server)
-    ( cd $PLUTONIUM_DIRECTORY && pkill Xvfb || true && screen -S plutonium-server -L -Logfile /t6server/status/plutonium-server.log -dm bash -c "exec xvfb-run wine ${STARTUP}" )
+    start_game() {
+        ( cd $PLUTONIUM_DIRECTORY && pkill Xvfb || true && screen -S plutonium-server -L -Logfile /t6server/status/plutonium-server.log -dm bash -c "exec xvfb-run wine ${STARTUP}" )
+    }
+    start_game
 else
     echo "Missing Plutonium files!! Add them manually!"
     exit 1
@@ -350,5 +353,54 @@ else
     exit 1
 fi
 
-# Keep the container alive
-tail -f /dev/null
+# Keep the container alive and watch the game server.
+#
+# Plutonium T6 dedicated servers are known to go unresponsive after a while or
+# under repeated RCON/map-switch commands (still listed, no join, RCON silent)
+# without ever exiting - so a plain "wait for the screen to die" loop is not
+# enough. Watchdog: restart the game if its screen is gone OR RCON stops
+# answering the `status` probe twice in a row. Same probe the community uses
+# for the same problem.
+# ponytail: 30s cadence, 2-strike dead check; per-port/game if this ever needs
+# to supervise more than one server.
+wine_probe_rcon() {
+    timeout 3 bash -c \
+        'exec 3<>/dev/udp/127.0.0.1/$1; \
+         printf "\377\377\377\377rcon %s status\000\346\352" "$2" >&3; \
+         head -c 512 <&3' _ "$SERVER_PORT" "${SERVER_RCON_PASSWORD:-admin}" 2>/dev/null \
+        | grep -q .
+}
+
+game_stopped() {
+    ([ -n "$(screen -ls | grep plutonium-server)" ] \
+        && wine_probe_rcon) \
+        && return 1
+    return 0
+}
+
+watchdog_failure_count=0
+game_started_at=$(date +%s)
+while true; do
+    sleep 30
+
+    if game_stopped; then
+        # Respect the initial boot: the game can take a few minutes to answer RCON.
+        if [ $(( $(date +%s) - game_started_at )) -lt 180 ]; then
+            watchdog_failure_count=0
+            continue
+        fi
+        watchdog_failure_count=$((watchdog_failure_count + 1))
+    else
+        watchdog_failure_count=0
+    fi
+
+    if [ "$watchdog_failure_count" -ge 2 ]; then
+        echo "$(date) game server unresponsive or crashed - restarting..."
+        screen -S plutonium-server -X quit 2>/dev/null
+        pkill -f plutonium-bootstrapper-win32.exe 2>/dev/null
+        sleep 5
+        start_game
+        watchdog_failure_count=0
+        game_started_at=$(date +%s)
+    fi
+done
