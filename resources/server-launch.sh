@@ -8,6 +8,11 @@ DOWNLOAD_DIRECTORY=/t6server/downloaded_files
 UPDATER_DIRECTORY=/t6server/updater
 STATUS_DIRECTORY=/t6server/status
 
+# Blank SERVER_RCON_PASSWORD must fall back to the image default ('admin'),
+# otherwise the rcon_password sed below is skipped and the server runs with an
+# empty password (IW4MAdmin/watchdog can't log in).
+SERVER_RCON_PASSWORD="${SERVER_RCON_PASSWORD:-admin}"
+
 # Create Directories (redudant as they are created in the Dockerfile)
 mkdir -p $PLUTONIUM_DIRECTORY \
          $IW4ADMIN_DIRECTORY \
@@ -242,20 +247,24 @@ else
     LAN=""
 fi
 
-# Apply specific configs from environment variables to the dedicated configuration file [WIP]
+# Apply specific configs from environment variables to the dedicated configuration file.
+#
+# These seds are idempotent, so run them on EVERY boot (no once-only status
+# flag). The old one-shot flags meant .env edits were ignored on existing
+# servers, e.g. SERVER_RCON_PASSWORD or SERVER_MAX_CLIENTS "took" only on the
+# very first boot. SERVER_MAP_ROTATION below is the exception - its insert is
+# not idempotent, so it keeps its flag.
 
 # Set max clients of the server
-if [ ! -z "$SERVER_MAX_CLIENTS" ]&& [ ! -e $STATUS_DIRECTORY/.server_config_file_max_clients_modified ]; then
+if [ ! -z "$SERVER_MAX_CLIENTS" ]; then
     echo "Setting server max clients to: '$SERVER_MAX_CLIENTS'"
-    sed -i "s/\(sv_maxclients \)[0-9]/\1$SERVER_MAX_CLIENTS/" "$CFG_PATH"
-    touch $STATUS_DIRECTORY/.server_config_file_max_clients_modified
+    sed -i "s/\(sv_maxclients \)[0-9]*/\1$SERVER_MAX_CLIENTS/" "$CFG_PATH"
 fi
 
 # Set server RCON password
-if [ ! -z "$SERVER_RCON_PASSWORD" ] && [ ! -e $STATUS_DIRECTORY/.server_config_file_rcon_password_modified ]; then
+if [ ! -z "$SERVER_RCON_PASSWORD" ]; then
     echo "Setting server rcon password to: '$SERVER_RCON_PASSWORD'"
     sed -i "s/\(rcon_password \)\"[^\"]*\"/\1\"$SERVER_RCON_PASSWORD\"/" "$CFG_PATH"
-    touch $STATUS_DIRECTORY/.server_config_file_rcon_password_modified
 fi
 
 # Set server map rotation
@@ -269,10 +278,9 @@ if [ ! -z "$SERVER_MAP_ROTATION" ] && [ ! -e $STATUS_DIRECTORY/.server_config_fi
 fi
 
 # Set server password
-if [ ! -z "$SERVER_PASSWORD" ] && [ ! -e $STATUS_DIRECTORY/.server_config_file_password_modified ]; then
+if [ ! -z "$SERVER_PASSWORD" ]; then
     echo "Setting server password to: '$SERVER_PASSWORD'"
     sed -i "s/\(g_password \)\"[^\"]*\"/\1\"$SERVER_PASSWORD\"/" "$CFG_PATH"
-    touch $STATUS_DIRECTORY/.server_config_file_password_modified
 fi
 
 
