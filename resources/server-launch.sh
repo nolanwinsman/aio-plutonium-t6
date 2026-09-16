@@ -343,12 +343,12 @@ else
     exit 1
 fi
 
-# IW4MAdmin exits with a fatal error if the game isn't answering RCON when it
-# initializes, so we don't start it eagerly here - the watchdog below launches
-# it once the game is responsive and brings it back if it ever dies.
-start_panel() {
-    ( cd $IW4ADMIN_DIRECTORY && screen -S admin-panel -dm bash -c "$IW4ADMIN_DIRECTORY/StartIW4MAdmin.sh" )
-}
+# IW4MAdmin panel disabled for now - kept crashing the container. Re-enable by
+# uncommenting start_panel() and the watchdog block below.
+# start_panel() {
+#     ( cd $IW4ADMIN_DIRECTORY && screen -S admin-panel -dm bash -c "$IW4ADMIN_DIRECTORY/StartIW4MAdmin.sh" )
+# }
+# start_panel
 
 # Keep the container alive and watch the game server.
 #
@@ -389,12 +389,7 @@ while true; do
         watchdog_failure_count=$((watchdog_failure_count + 1))
     else
         watchdog_failure_count=0
-        # IW4MAdmin only starts once the game answers RCON, and recovers here
-        # if it dies later for any reason.
-        if [ -z "$(screen -ls | grep admin-panel)" ] && [ -e $IW4ADMIN_DIRECTORY/StartIW4MAdmin.sh ]; then
-            echo "$(date) IW4MAdmin panel not running - starting it"
-            start_panel
-        fi
+        # IW4MAdmin panel disabled (see start_panel above)
     fi
 
     if [ "$watchdog_failure_count" -ge 2 ]; then
