@@ -343,19 +343,12 @@ else
     exit 1
 fi
 
-# Launch IW4Admin
-if [ -e $IW4ADMIN_DIRECTORY/StartIW4MAdmin.sh ]; then
-    echo "IW4Admin files exist!"
-    echo "Starting IW4Admin..."
-    # Replace Startup Variables
-    echo "Running $IW4ADMIN_DIRECTORY/StartIW4MAdmin.sh"
-
-    # Run IW4Admin (detached on a screen named admin-panel)
+# IW4MAdmin exits with a fatal error if the game isn't answering RCON when it
+# initializes, so we don't start it eagerly here - the watchdog below launches
+# it once the game is responsive and brings it back if it ever dies.
+start_panel() {
     ( cd $IW4ADMIN_DIRECTORY && screen -S admin-panel -dm bash -c "$IW4ADMIN_DIRECTORY/StartIW4MAdmin.sh" )
-else
-    echo "Missing IW4Admin files!! Add them manually!"
-    exit 1
-fi
+}
 
 # Keep the container alive and watch the game server.
 #
@@ -396,6 +389,12 @@ while true; do
         watchdog_failure_count=$((watchdog_failure_count + 1))
     else
         watchdog_failure_count=0
+        # IW4MAdmin only starts once the game answers RCON, and recovers here
+        # if it dies later for any reason.
+        if [ -z "$(screen -ls | grep admin-panel)" ] && [ -e $IW4ADMIN_DIRECTORY/StartIW4MAdmin.sh ]; then
+            echo "$(date) IW4MAdmin panel not running - starting it"
+            start_panel
+        fi
     fi
 
     if [ "$watchdog_failure_count" -ge 2 ]; then
