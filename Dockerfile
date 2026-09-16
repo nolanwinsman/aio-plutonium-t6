@@ -94,8 +94,12 @@ RUN wget https://packages.microsoft.com/config/ubuntu/22.04/packages-microsoft-p
   rm packages-microsoft-prod.deb
 
 # IW4MAdmin's current releases require the .NET 10 runtime (fresh installs
-# track the latest GitHub release, which has moved on from .NET 6)
-RUN apt-get update && apt-get install -y aspnetcore-runtime-10.0
+# track the latest GitHub release, which has moved on from .NET 6).
+# The apt package (aspnetcore-runtime-10.0) is not published for 22.04, so
+# fetch the runtime tarball via the official installer script instead.
+RUN curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
+    && bash /tmp/dotnet-install.sh --runtime aspnetcore --channel 10.0 --install-dir /usr/lib/dotnet \
+    && rm /tmp/dotnet-install.sh
 
 
 ################################################################################

@@ -6,16 +6,8 @@ name: Docker Build and Publish
 # documentation.
 
 on:
-  # Manual trigger: Actions tab -> "Run workflow"
+  # Manual trigger only: Actions tab -> "Run workflow"
   workflow_dispatch:
-  # Automatically build/push when the repo's own main branch is updated
-  push:
-    branches: [ "main" ]
-    # Publish semver tags as releases.
-    # Only run job if on tags and if the tag matches pattern.
-    tags: [ 'v*.*.*' ]
-  pull_request:
-    branches: [ "main" ]
 
 env:
   # GitHub Container Registry (GHCR) - pushes to ghcr.io/<account>/aio-plutonium-t6
